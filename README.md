@@ -1,3 +1,4 @@
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/H2H11MFEZL)
 ### **Overall Purpose**
 
 This script is a comprehensive, post-installation utility for Fedora Linux. Its primary goal is to automate the setup of a fully-featured desktop environment tailored for development, multimedia, and gaming. It handles system checks, repository configuration, package installation, system optimization, user environment configuration, and hardware-specific tweaks based on your updated preferences.
