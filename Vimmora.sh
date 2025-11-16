@@ -391,7 +391,7 @@ install_system_fonts() {
   dnf install -y google-noto-sans-fonts google-noto-serif-fonts google-noto-cjk-fonts google-noto-emoji-fonts \
                  liberation-fonts dejavu-fonts-all \
                  cabextract xorg-x11-font-utils \
-                 ibm-plex-fonts-all mozilla-fira-fonts-common mozilla-fira-sans-fonts mozilla-fira-mono-fonts \
+                 ibm-plex-fonts-all \
                  wqy-zenhei-fonts vlgothic-fonts
 
   # Install Microsoft fonts
@@ -425,7 +425,8 @@ install_flatpaks() {
     flatpak install -y flathub com.github.tchx84.Flatseal com.usebottles.bottles \
                              net.nokyan.Resources io.github.dimtpap.coppwr \
                              org.nickvision.cavalier com.rustdesk.RustDesk \
-                             org.kde.kwalletmanager5 it.mijorus.gearlever
+                             org.kde.kwalletmanager5 it.mijorus.gearlever \
+                             com.github.zocker_160.SyncThingy
 
     log_success "Flatpak applications installed"
 }
@@ -493,6 +494,65 @@ create_final_snapshot() {
     log_success "Final system snapshots created"
 }
 
+remove_unwanted_packages() {
+    log "Removing unwanted packages..."
+
+    # Remove elisa-player and dragon if installed
+    if rpm -q elisa-player.x86_64 &>/dev/null; then
+        log "Removing elisa-player.x86_64..."
+        dnf remove -y elisa-player.x86_64
+    fi
+
+    if rpm -q dragon.x86_64 &>/dev/null; then
+        log "Removing dragon.x86_64..."
+        dnf remove -y dragon.x86_64
+    fi
+
+    log_success "Unwanted packages removal completed"
+}
+
+fix_keyboard_fn_keys() {
+    log "Fixing keyboard function keys..."
+
+    local fnmode_path="/sys/module/hid_apple/parameters/fnmode"
+
+    # Check if the target module parameter exists
+    if [ ! -f "$fnmode_path" ]; then
+        log_warning "The kernel module parameter was not found at: $fnmode_path"
+        log_warning "This likely means the 'hid_apple' module is not in use. Skipping keyboard fix."
+        return 0
+    fi
+
+    # Apply the fix temporarily
+    if echo 2 > "$fnmode_path" 2>/dev/null; then
+        log "Temporary keyboard fix applied successfully."
+    else
+        log_error "Failed to apply the temporary keyboard fix."
+        return 1
+    fi
+
+    # Make the change permanent
+    local conf_file="/etc/modprobe.d/hid_apple.conf"
+    log "Creating configuration file: $conf_file"
+    if echo "options hid_apple fnmode=2" > "$conf_file"; then
+        log "Configuration file created."
+    else
+        log_error "Failed to create configuration file."
+        return 1
+    fi
+
+    # Rebuild the initramfs using dracut for Fedora
+    log "Rebuilding the initramfs with 'dracut'. This may take a few moments..."
+    if dracut --force; then
+        log_success "Initramfs rebuilt successfully."
+    else
+        log_error "Failed to rebuild initramfs with dracut."
+        return 1
+    fi
+
+    log_success "Keyboard function keys fix applied permanently"
+}
+
 cleanup() {
     log "Performing cleanup..."
 
@@ -530,6 +590,10 @@ main() {
     touch "$LOG_FILE"
     chown $ACTUAL_USER:$ACTUAL_USER "$LOG_FILE"
 
+    # Redirect all output (stdout and stderr) to both terminal and log file
+    exec > >(tee -a "$LOG_FILE")
+    exec 2>&1
+
     setup_repositories
     update_system
     setup_snapshots
@@ -549,6 +613,8 @@ main() {
     install_system_fonts
     install_kickstart_nvim
     change_to_zsh
+    remove_unwanted_packages
+    fix_keyboard_fn_keys
     create_final_snapshot
     cleanup
     generate_summary
