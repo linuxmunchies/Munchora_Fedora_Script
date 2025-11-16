@@ -184,7 +184,7 @@ install_system_tools() {
     dnf install -y fwupd cifs-utils samba-client btop htop \
                    fastfetch p7zip unzip git vim neovim curl wget fzf \
                    rsync lsof zsh gcc make python3-pip python3-devel duf inxi ncdu \
-                   kitty bat wl-clipboard go tldr rclone
+                   kitty bat wl-clipboard go tldr rclone lsd
     log_success "System Tools Installed"
 }
 setup_virtualization() {
@@ -271,6 +271,13 @@ mkdir_proton() {
   mkdir -p $ACTUAL_HOME/ProtonDrive/Archives/{Discord,Obsidian} $ACTUAL_HOME/ProtonDrive/Career/MainDocs/
   chown -R $ACTUAL_USER:$ACTUAL_USER $ACTUAL_HOME/ProtonDrive
   log_success "ProtonDrive directories created successfully"
+}
+
+mkdir_dev_sync() {
+  log "Creating dev and sync directories in home directory..."
+  mkdir -p $ACTUAL_HOME/dev $ACTUAL_HOME/sync
+  chown -R $ACTUAL_USER:$ACTUAL_USER $ACTUAL_HOME/dev $ACTUAL_HOME/sync
+  log_success "dev and sync directories created successfully"
 }
 
 install_brave_browser() {
@@ -553,6 +560,59 @@ fix_keyboard_fn_keys() {
     log_success "Keyboard function keys fix applied permanently"
 }
 
+fix_discord_mic_volume() {
+    log "Setting up PipeWire fix to prevent Discord and other apps from adjusting microphone volume..."
+
+    # Check if PipeWire is running
+    if ! systemctl --user -M $ACTUAL_USER@ is-active --quiet pipewire 2>/dev/null; then
+        log_warning "PipeWire not running, skipping microphone volume fix"
+        return 0
+    fi
+
+    PIPEWIRE_PULSE_DIR="$ACTUAL_HOME/.config/pipewire/pipewire-pulse.conf.d"
+    mkdir -p "$PIPEWIRE_PULSE_DIR"
+
+    # Create the mic-lock configuration file
+    log "Creating PipeWire configuration to block source volume changes..."
+    cat > "$PIPEWIRE_PULSE_DIR/10-mic-lock.conf" << 'EOF'
+pulse.rules = [
+  {
+    matches = [
+      { application.process.binary = "chrome" }
+      { application.process.binary = "chromium" }
+      { application.name = "~Chromium.*" }
+      { application.process.binary = "Discord" }
+      { application.process.binary = "teams" }
+      { application.process.binary = "skypeforlinux" }
+      { application.process.binary = "zoom" }
+    ]
+    actions = {
+      quirks = [ block-source-volume ]
+    }
+  }
+]
+EOF
+
+    chown -R $ACTUAL_USER:$ACTUAL_USER "$ACTUAL_HOME/.config/pipewire"
+
+    # Set default source volume to 100% and save the setting
+    log "Setting default microphone volume to 100%..."
+    if command -v wpctl &> /dev/null; then
+        # Set current volume to 100%
+        sudo -u $ACTUAL_USER wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 1.0 2>/dev/null || log_warning "Could not set current microphone volume (may need user session)"
+        
+        # Save the default source volume setting
+        sudo -u $ACTUAL_USER wpctl settings --save device.routes.default-source-volume 1.0 2>/dev/null || log_warning "Could not save default microphone volume setting (may need user session)"
+        
+        log "Microphone volume configuration commands executed (may require user session to take full effect)"
+    else
+        log_warning "wpctl not found, skipping volume setting. Install wireplumber for full functionality."
+    fi
+
+    log_success "PipeWire microphone volume fix configured"
+    log "Note: Audio services will need to be restarted for changes to take effect"
+}
+
 cleanup() {
     log "Performing cleanup..."
 
@@ -605,6 +665,7 @@ main() {
     install_gaming
     setup_gaming_tweaks
     mkdir_proton
+    mkdir_dev_sync
     install_brave_browser
     install_flatpaks
     setup_gamedrive_mount
@@ -615,6 +676,7 @@ main() {
     change_to_zsh
     remove_unwanted_packages
     fix_keyboard_fn_keys
+    fix_discord_mic_volume
     create_final_snapshot
     cleanup
     generate_summary
